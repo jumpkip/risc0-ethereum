@@ -33,9 +33,7 @@ use risc0_steel::{
     host::BlockNumberOrTag,
     Commitment, Contract,
 };
-use risc0_zkvm::{
-    compute_image_id_v2, default_prover, sha::Digest, ExecutorEnv, ProverOpts, VerifierContext,
-};
+use risc0_zkvm::{default_prover, Digest, ExecutorEnv, ProverOpts, VerifierContext};
 use tokio::task;
 use tracing_subscriber::EnvFilter;
 use url::Url;
@@ -62,40 +60,40 @@ sol!(
 #[derive(Parser)]
 struct Args {
     /// Ethereum private key
-    #[clap(long, env)]
+    #[arg(long, env = "ETH_WALLET_PRIVATE_KEY")]
     eth_wallet_private_key: PrivateKeySigner,
 
     /// Ethereum RPC endpoint URL
-    #[clap(long, env)]
+    #[arg(long, env = "ETH_RPC_URL")]
     eth_rpc_url: Url,
 
     /// Beacon API endpoint URL
     ///
     /// Steel uses a beacon block commitment instead of the execution block.
     /// This allows proofs to be validated using the EIP-4788 beacon roots contract.
-    #[clap(long, env)]
     #[cfg(any(feature = "beacon", feature = "history"))]
+    #[arg(long, env = "BEACON_API_URL")]
     beacon_api_url: Url,
 
     /// Ethereum block to use as the state for the contract call
-    #[clap(long, env, default_value_t = BlockNumberOrTag::Parent)]
+    #[arg(long, env = "EXECUTION_BLOCK", default_value_t = BlockNumberOrTag::Parent)]
     execution_block: BlockNumberOrTag,
 
     /// Ethereum block to use for the beacon block commitment.
-    #[clap(long, env)]
     #[cfg(feature = "history")]
+    #[arg(long, env = "COMMITMENT_BLOCK")]
     commitment_block: BlockNumberOrTag,
 
     /// Address of the Counter verifier contract
-    #[clap(long)]
+    #[arg(long)]
     counter_address: Address,
 
     /// Address of the ERC20 token contract
-    #[clap(long)]
+    #[arg(long)]
     token_contract: Address,
 
     /// Address to query the token balance of
-    #[clap(long)]
+    #[arg(long)]
     account: Address,
 }
 
@@ -180,8 +178,7 @@ async fn main() -> Result<()> {
 
     // Call ICounter::imageID() to check that the contract has been deployed correctly.
     let contract_image_id = Digest::from(contract.imageID().call().await?._0.0);
-    let image_id = compute_image_id_v2(BALANCE_OF_ID).context("failed to compute image id")?;
-    ensure!(contract_image_id == image_id);
+    ensure!(contract_image_id == BALANCE_OF_ID.into());
 
     // Call the increment function of the contract and wait for confirmation.
     log::info!(

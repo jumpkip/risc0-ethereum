@@ -19,7 +19,11 @@ use alloy::{
 };
 use alloy_primitives::{address, Address, BlockNumber};
 use op_alloy_network::Optimism;
-use risc0_steel::{beacon::BeaconCommit, ethereum::EthEvmInput, BeaconInput};
+use risc0_steel::{
+    beacon::{BeaconBlockId, BeaconCommit},
+    ethereum::EthEvmInput,
+    BeaconInput,
+};
 use std::{cmp::Ordering, future::IntoFuture};
 use url::Url;
 
@@ -64,7 +68,10 @@ where
         panic!("only EthEvmInput::Beacon is supported");
     };
     let (input, commit) = input.into_parts();
-    let (proof, timestamp) = commit.into_parts();
+    let (proof, beacon_block_id) = commit.into_parts();
+    let BeaconBlockId::Eip4788(timestamp) = beacon_block_id else {
+        panic!("only BeaconBlockId::Eip4788 is supported");
+    };
 
     let block_contract = L1Block::new(L1_BLOCK_ADDRESS, &provider);
     if timestamp > block_contract.latest_timestamp().await? {
@@ -86,7 +93,7 @@ where
 
     Ok(EthEvmInput::Beacon(BeaconInput::new(
         input,
-        BeaconCommit::new(proof, timestamp),
+        BeaconCommit::new(proof, BeaconBlockId::Eip4788(timestamp)),
     )))
 }
 
@@ -105,7 +112,7 @@ mod sol {
     }
 }
 
-struct L1Block<P>(sol::IL1Block::IL1BlockInstance<(), P, Optimism>);
+struct L1Block<P>(sol::IL1Block::IL1BlockInstance<P, Optimism>);
 
 impl<P> L1Block<P>
 where
@@ -116,11 +123,11 @@ where
     }
 
     pub async fn latest_number(&self) -> alloy::contract::Result<BlockNumber> {
-        Ok(self.0.number().call().await?._0)
+        self.0.number().call().await
     }
 
     pub async fn latest_timestamp(&self) -> alloy::contract::Result<u64> {
-        Ok(self.0.timestamp().call().await?._0)
+        self.0.timestamp().call().await
     }
 
     pub async fn find_l2_block_at_timestamp(
@@ -156,7 +163,7 @@ where
         // binary search within the narrowed range
         while lo < hi {
             let mid = (lo + hi) / 2;
-            let ts = self.0.timestamp().call().block(mid.into()).await?._0;
+            let ts = self.0.timestamp().call().block(mid.into()).await?;
             match ts.cmp(&target_ts) {
                 Ordering::Less => lo = mid + 1,
                 Ordering::Equal => return Ok(Some(mid)),
@@ -174,6 +181,6 @@ where
             timestamp.call().block(block).into_future(),
             sequence_number.call().block(block).into_future()
         );
-        Ok((ts?._0, sq?._0))
+        Ok((ts?, sq?))
     }
 }

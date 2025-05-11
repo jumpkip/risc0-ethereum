@@ -25,9 +25,9 @@ use alloy::{
 use alloy_primitives::{address, Address, Bytes, B256, U256};
 use anyhow::Context;
 use risc0_steel::{
-    ethereum::{EthBlockHeader, EthEvmEnv, EthEvmInput, ETH_SEPOLIA_CHAIN_SPEC},
+    ethereum::{EthBlockHeader, EthEvmEnv, EthEvmFactory, EthEvmInput, ETH_SEPOLIA_CHAIN_SPEC},
     host::BlockNumberOrTag,
-    Commitment, Contract, StateAccount,
+    Commitment, Contract, EvmFactory, StateAccount,
 };
 use serde_json::{from_value, to_value, Value};
 use test_log::test;
@@ -359,7 +359,8 @@ async fn corrupt_header_beacon_commitment() {
     let header_value = &mut get_block_input_mut(&mut input_value)["header"];
 
     // corrupt the header by modifying its number
-    let mut header: EthBlockHeader = from_value(header_value.clone()).unwrap();
+    let mut header: <EthEvmFactory as EvmFactory>::Header =
+        from_value(header_value.clone()).unwrap();
     header.inner_mut().number = 0xdeadbeaf;
     *header_value = to_value(header).unwrap();
 
@@ -416,6 +417,7 @@ async fn corrupt_beacon_proof_length() {
 #[cfg(feature = "unstable-history")]
 mod history {
     use super::*;
+    use risc0_steel::beacon::BeaconBlockId;
     use test_log::test;
 
     /// Creates `EthEvmInput::History` using live RPC nodes preflighting
@@ -545,8 +547,8 @@ mod history {
         let evm_commit = &mut input_value["History"]["commit"]["evm_commit"];
 
         // corrupt the EVM commit by changing its timestamp
-        let timestamp_value = &mut evm_commit["timestamp"];
-        *timestamp_value = to_value(u64::MAX).unwrap();
+        let block_id_value = &mut evm_commit["block_id"];
+        *block_id_value = to_value(BeaconBlockId::Eip4788(u64::MAX)).unwrap();
 
         // converting this into an environment should panic
         mock_usdt_guest(from_value(input_value).unwrap());

@@ -29,7 +29,8 @@ use alloy_primitives::{
 use alloy_rpc_types::{Filter, TransactionReceipt};
 use anyhow::{ensure, Context, Result};
 use revm::{
-    primitives::{AccountInfo, Bytecode, KECCAK_EMPTY},
+    primitives::KECCAK_EMPTY,
+    state::{AccountInfo, Bytecode},
     Database as RevmDatabase,
 };
 use std::hash::{BuildHasher, Hash};
@@ -182,7 +183,7 @@ impl<N: Network, P: Provider<N>> ProofDb<ProviderDb<N, P>> {
                 .provider()
                 .get_block_by_hash(hash)
                 .await
-                .context("eth_getBlockByNumber failed")?
+                .context("eth_getBlockByHash failed")?
                 .with_context(|| format!("block {} not found", hash))?;
 
             return Ok((
@@ -258,7 +259,7 @@ impl<N: Network, P: Provider<N>> ProofDb<ProviderDb<N, P>> {
         let block = provider
             .get_block_by_hash(block_hash)
             .await
-            .context("eth_getBlockByNumber failed")?
+            .context("eth_getBlockByHash failed")?
             .with_context(|| format!("block {} not found", block_hash))?;
         let header = block.header();
 

@@ -16,7 +16,7 @@ use super::BlockId;
 use crate::{
     beacon::BeaconCommit,
     config::ChainSpec,
-    ethereum::{EthChainSpec, EthEvmFactory},
+    ethereum::EthEvmFactory,
     history::HistoryCommit,
     host::{
         db::{ProofDb, ProviderConfig, ProviderDb},
@@ -38,20 +38,21 @@ impl<F: EvmFactory> EvmEnv<(), F, ()> {
     ///
     /// Create an Ethereum environment bast on the latest block:
     /// ```rust,no_run
-    /// # use risc0_steel::ethereum::EthEvmEnv;
+    /// # use risc0_steel::ethereum::{ETH_MAINNET_CHAIN_SPEC, EthEvmEnv};
     /// # use url::Url;
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() -> anyhow::Result<()> {
-    /// # let url = Url::parse("https://ethereum-rpc.publicnode.com")?;
-    /// let env = EthEvmEnv::builder().rpc(url).build().await?;
+    /// let url = Url::parse("https://ethereum-rpc.publicnode.com")?;
+    /// let env = EthEvmEnv::builder().rpc(url).chain_spec(&ETH_MAINNET_CHAIN_SPEC).build().await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn builder() -> EvmEnvBuilder<(), F, ()> {
+    pub fn builder() -> EvmEnvBuilder<(), F, (), ()> {
         EvmEnvBuilder {
             provider: (),
             provider_config: ProviderConfig::default(),
             block: BlockId::default(),
+            chain_spec: (),
             beacon_config: (),
             phantom: PhantomData,
         }
@@ -68,30 +69,26 @@ impl<F: EvmFactory> EvmEnv<(), F, ()> {
 /// # Usage
 /// The builder can be created using [EvmEnv::builder()]. Various configurations can be chained to
 /// customize the environment before calling the `build` function to create the final [EvmEnv].
-///
-/// # Type Parameters
-/// - `P`: The type of the RPC provider that interacts with the blockchain.
-/// - `H`: The type of the block header.
-/// - `B`: The type of the configuration to access the Beacon API.
 #[derive(Clone, Debug)]
-pub struct EvmEnvBuilder<P, F, B> {
+pub struct EvmEnvBuilder<P, F, S, B> {
     provider: P,
     provider_config: ProviderConfig,
     block: BlockId,
+    chain_spec: S,
     beacon_config: B,
     phantom: PhantomData<F>,
 }
 
-impl EvmEnvBuilder<(), EthEvmFactory, ()> {
+impl<S> EvmEnvBuilder<(), EthEvmFactory, S, ()> {
     /// Sets the Ethereum HTTP RPC endpoint that will be used by the [EvmEnv].
-    pub fn rpc(self, url: Url) -> EvmEnvBuilder<RootProvider<Ethereum>, EthEvmFactory, ()> {
-        self.provider(ProviderBuilder::default().on_http(url))
+    pub fn rpc(self, url: Url) -> EvmEnvBuilder<RootProvider<Ethereum>, EthEvmFactory, S, ()> {
+        self.provider(ProviderBuilder::default().connect_http(url))
     }
 }
 
-impl<F: EvmFactory> EvmEnvBuilder<(), F, ()> {
+impl<F: EvmFactory, S> EvmEnvBuilder<(), F, S, ()> {
     /// Sets a custom [Provider] that will be used by the [EvmEnv].
-    pub fn provider<N, P>(self, provider: P) -> EvmEnvBuilder<P, F, ()>
+    pub fn provider<N, P>(self, provider: P) -> EvmEnvBuilder<P, F, S, ()>
     where
         N: Network,
         P: Provider<N>,
@@ -102,6 +99,24 @@ impl<F: EvmFactory> EvmEnvBuilder<(), F, ()> {
             provider,
             provider_config: self.provider_config,
             block: self.block,
+            chain_spec: self.chain_spec,
+            beacon_config: self.beacon_config,
+            phantom: self.phantom,
+        }
+    }
+}
+
+impl<P, F: EvmFactory, B> EvmEnvBuilder<P, F, (), B> {
+    /// Sets the [ChainSpec] that will be used by the [EvmEnv].
+    pub fn chain_spec(
+        self,
+        chain_spec: &ChainSpec<F::Spec>,
+    ) -> EvmEnvBuilder<P, F, &ChainSpec<F::Spec>, B> {
+        EvmEnvBuilder {
+            provider: self.provider,
+            provider_config: self.provider_config,
+            block: self.block,
+            chain_spec,
             beacon_config: self.beacon_config,
             phantom: self.phantom,
         }
@@ -115,16 +130,17 @@ pub struct Beacon {
     commitment_version: CommitmentVersion,
 }
 
-impl<P> EvmEnvBuilder<P, EthEvmFactory, ()> {
+impl<P, S> EvmEnvBuilder<P, EthEvmFactory, S, ()> {
     /// Sets the Beacon API URL for retrieving Ethereum Beacon block root commitments.
     ///
     /// This function configures the [EvmEnv] to interact with an Ethereum Beacon chain.
     /// It assumes the use of the [mainnet](https://github.com/ethereum/consensus-specs/blob/v1.4.0/configs/mainnet.yaml) preset for consensus specs.
-    pub fn beacon_api(self, url: Url) -> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
+    pub fn beacon_api(self, url: Url) -> EvmEnvBuilder<P, EthEvmFactory, S, Beacon> {
         EvmEnvBuilder {
             provider: self.provider,
             provider_config: self.provider_config,
             block: self.block,
+            chain_spec: self.chain_spec,
             beacon_config: Beacon {
                 url,
                 commitment_version: CommitmentVersion::Beacon,
@@ -134,7 +150,7 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, ()> {
     }
 }
 
-impl<P, F, B> EvmEnvBuilder<P, F, B> {
+impl<P, F, S, B> EvmEnvBuilder<P, F, S, B> {
     /// Sets the block number to be used for the EVM execution.
     pub fn block_number(self, number: u64) -> Self {
         self.block_number_or_tag(BlockNumberOrTag::Number(number))
@@ -198,7 +214,7 @@ impl<P, F, B> EvmEnvBuilder<P, F, B> {
     }
 }
 
-impl<P, F: EvmFactory> EvmEnvBuilder<P, F, ()> {
+impl<P, F: EvmFactory> EvmEnvBuilder<P, F, &ChainSpec<F::Spec>, ()> {
     /// Builds and returns an [EvmEnv] with the configured settings that commits to a block hash.
     pub async fn build<N>(self) -> Result<HostEvmEnv<ProviderDb<N, P>, F, ()>>
     where
@@ -221,22 +237,21 @@ impl<P, F: EvmFactory> EvmEnvBuilder<P, F, ()> {
         ));
         let commit = HostCommit {
             inner: (),
-            config_id: ChainSpec::<F::Spec>::default().digest(),
+            config_id: self.chain_spec.digest(),
         };
 
-        Ok(EvmEnv::new(db, header, commit))
+        Ok(EvmEnv::new(db, self.chain_spec, header, commit))
     }
 }
 
 /// Config for separating the execution block from the commitment block.
-#[stability::unstable(feature = "history")]
 #[derive(Clone, Debug)]
 pub struct History {
     beacon_config: Beacon,
     commitment_block: BlockId,
 }
 
-impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
+impl<P, S> EvmEnvBuilder<P, EthEvmFactory, S, Beacon> {
     /// Configures the environment builder to generate consensus commitments.
     ///
     /// A consensus commitment contains the beacon block root indexed directly by its slot number.
@@ -249,7 +264,7 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
     ///
     /// # Example
     /// ```rust,no_run
-    /// # use risc0_steel::ethereum::EthEvmEnv;
+    /// # use risc0_steel::ethereum::{ETH_MAINNET_CHAIN_SPEC, EthEvmEnv};
     /// # use alloy_primitives::B256;
     /// # use url::Url;
     /// # use std::str::FromStr;
@@ -258,6 +273,7 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
     /// let builder = EthEvmEnv::builder()
     ///     .rpc(Url::parse("https://ethereum-rpc.publicnode.com")?)
     ///     .beacon_api(Url::parse("https://ethereum-beacon-api.publicnode.com")?)
+    ///     .chain_spec(&ETH_MAINNET_CHAIN_SPEC)
     ///     // Configure the builder to use slot-indexed consensus commitments.
     ///     .consensus_commitment();
     ///
@@ -271,6 +287,7 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
         self.beacon_config.commitment_version = CommitmentVersion::Consensus;
         self
     }
+
     /// Sets the block hash for the commitment block, which can be different from the execution
     /// block.
     ///
@@ -282,7 +299,7 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
     ///
     /// # Example
     /// ```rust,no_run
-    /// # use risc0_steel::ethereum::EthEvmEnv;
+    /// # use risc0_steel::ethereum::{ETH_MAINNET_CHAIN_SPEC, EthEvmEnv};
     /// # use alloy_primitives::B256;
     /// # use url::Url;
     /// # use std::str::FromStr;
@@ -292,48 +309,46 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
     /// let builder = EthEvmEnv::builder()
     ///     .rpc(Url::parse("https://ethereum-rpc.publicnode.com")?)
     ///     .beacon_api(Url::parse("https://ethereum-beacon-api.publicnode.com")?)
-    ///     .block_number(1_000_000);  // execute against historical state
-    /// # #[cfg(feature = "unstable-history")] // required because of the stability crate
-    /// let builder = builder.commitment_block_hash(commitment_hash); // commit to recent block
+    ///     .block_number(1_000_000) // execute against historical state
+    ///     .commitment_block_hash(commitment_hash) // commit to recent block
+    ///     .chain_spec(&ETH_MAINNET_CHAIN_SPEC);
     /// let env = builder.build().await?;
     /// # Ok(())
     /// # }
     /// ```
-    #[stability::unstable(feature = "history")]
     pub fn commitment_block_hash(
         self,
         hash: BlockHash,
-    ) -> EvmEnvBuilder<P, EthEvmFactory, History> {
+    ) -> EvmEnvBuilder<P, EthEvmFactory, S, History> {
         self.commitment_block(BlockId::Hash(hash))
     }
 
     /// Sets the block number or block tag ("latest", "earliest", "pending")  for the commitment.
     ///
     /// See [EvmEnvBuilder::commitment_block_hash] for detailed documentation.
-    #[stability::unstable(feature = "history")]
     pub fn commitment_block_number_or_tag(
         self,
         block: BlockNumberOrTag,
-    ) -> EvmEnvBuilder<P, EthEvmFactory, History> {
+    ) -> EvmEnvBuilder<P, EthEvmFactory, S, History> {
         self.commitment_block(BlockId::Number(block))
     }
 
     /// Sets the block number for the commitment.
     ///
     /// See [EvmEnvBuilder::commitment_block_hash] for detailed documentation.
-    #[stability::unstable(feature = "history")]
     pub fn commitment_block_number(
         self,
         number: BlockNumber,
-    ) -> EvmEnvBuilder<P, EthEvmFactory, History> {
+    ) -> EvmEnvBuilder<P, EthEvmFactory, S, History> {
         self.commitment_block_number_or_tag(BlockNumberOrTag::Number(number))
     }
 
-    fn commitment_block(self, block: BlockId) -> EvmEnvBuilder<P, EthEvmFactory, History> {
+    fn commitment_block(self, block: BlockId) -> EvmEnvBuilder<P, EthEvmFactory, S, History> {
         EvmEnvBuilder {
             provider: self.provider,
             provider_config: self.provider_config,
             block: self.block,
+            chain_spec: self.chain_spec,
             beacon_config: History {
                 beacon_config: self.beacon_config,
                 commitment_block: block,
@@ -341,7 +356,9 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
             phantom: Default::default(),
         }
     }
+}
 
+impl<P> EvmEnvBuilder<P, EthEvmFactory, &ChainSpec<<EthEvmFactory as EvmFactory>::Spec>, Beacon> {
     /// Builds and returns an [EvmEnv] with the configured settings that commits to a beacon root.
     pub async fn build(self) -> Result<EthHostEvmEnv<ProviderDb<Ethereum, P>, BeaconCommit>>
     where
@@ -358,7 +375,7 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
         let version = self.beacon_config.commitment_version;
         let commit = HostCommit {
             inner: BeaconCommit::from_header(&header, version, &self.provider, beacon_url).await?,
-            config_id: EthChainSpec::DEFAULT_DIGEST,
+            config_id: self.chain_spec.digest(),
         };
         let db = ProofDb::new(ProviderDb::new(
             self.provider,
@@ -366,11 +383,11 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, Beacon> {
             header.seal(),
         ));
 
-        Ok(EvmEnv::new(db, header, commit))
+        Ok(EvmEnv::new(db, self.chain_spec, header, commit))
     }
 }
 
-impl<P> EvmEnvBuilder<P, EthEvmFactory, History> {
+impl<P> EvmEnvBuilder<P, EthEvmFactory, &ChainSpec<<EthEvmFactory as EvmFactory>::Spec>, History> {
     /// Configures the environment builder to generate consensus commitments.
     ///
     /// See [EvmEnvBuilder<P, EthBlockHeader, Beacon>::consensus_commitment] for more info.
@@ -380,7 +397,6 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, History> {
     }
     /// Builds and returns an [EvmEnv] with the configured settings, using a dedicated commitment
     /// block that is different from the execution block.
-    #[stability::unstable(feature = "history")]
     pub async fn build(self) -> Result<EthHostEvmEnv<ProviderDb<Ethereum, P>, HistoryCommit>>
     where
         P: Provider<Ethereum>,
@@ -412,7 +428,7 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, History> {
         .await?;
         let commit = HostCommit {
             inner: history_commit,
-            config_id: EthChainSpec::DEFAULT_DIGEST,
+            config_id: self.chain_spec.digest(),
         };
         let db = ProofDb::new(ProviderDb::new(
             self.provider,
@@ -420,40 +436,40 @@ impl<P> EvmEnvBuilder<P, EthEvmFactory, History> {
             evm_header.seal(),
         ));
 
-        Ok(EvmEnv::new(db, evm_header, commit))
+        Ok(EvmEnv::new(db, self.chain_spec, evm_header, commit))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::{get_cl_url, get_el_url};
     use crate::{
-        config::ChainSpec,
-        ethereum::{EthChainSpec, EthEvmEnv},
+        ethereum::{EthEvmEnv, ETH_MAINNET_CHAIN_SPEC},
         BlockHeaderCommit, Commitment, CommitmentVersion,
     };
     use test_log::test;
 
-    const EL_URL: &str = "https://ethereum-rpc.publicnode.com";
-    const CL_URL: &str = "https://ethereum-beacon-api.publicnode.com";
-
     #[test(tokio::test)]
-    #[ignore = "queries actual RPC nodes"]
+    #[cfg_attr(not(feature = "rpc-tests"), ignore = "RPC tests are disabled")]
     async fn build_block_env() {
-        let builder = EthEvmEnv::builder().rpc(EL_URL.parse().unwrap());
+        let builder = EthEvmEnv::builder()
+            .rpc(get_el_url())
+            .chain_spec(&ETH_MAINNET_CHAIN_SPEC);
         // the builder should be cloneable
         builder.clone().build().await.unwrap();
     }
 
     #[test(tokio::test)]
-    #[ignore = "queries actual RPC nodes"]
+    #[cfg_attr(not(feature = "rpc-tests"), ignore = "RPC tests are disabled")]
     async fn build_beacon_env() {
-        let provider = ProviderBuilder::default().connect(EL_URL).await.unwrap();
+        let provider = ProviderBuilder::default().connect_http(get_el_url());
 
         let builder = EthEvmEnv::builder()
             .provider(&provider)
-            .beacon_api(CL_URL.parse().unwrap())
-            .block_number_or_tag(BlockNumberOrTag::Parent);
+            .beacon_api(get_cl_url())
+            .block_number_or_tag(BlockNumberOrTag::Parent)
+            .chain_spec(&ETH_MAINNET_CHAIN_SPEC);
         let env = builder.clone().build().await.unwrap();
         let commit = env.commit.inner.commit(&env.header, env.commit.config_id);
 
@@ -469,23 +485,24 @@ mod tests {
                 CommitmentVersion::Beacon as u16,
                 header.timestamp,
                 header.parent_beacon_block_root.unwrap(),
-                ChainSpec::DEFAULT_DIGEST,
+                ETH_MAINNET_CHAIN_SPEC.digest(),
             )
         );
     }
 
     #[test(tokio::test)]
-    #[ignore = "queries actual RPC nodes"]
+    #[cfg_attr(not(feature = "rpc-tests"), ignore = "RPC tests are disabled")]
     async fn build_history_env() {
-        let provider = ProviderBuilder::default().connect(EL_URL).await.unwrap();
+        let provider = ProviderBuilder::default().connect_http(get_el_url());
 
         // initialize the env at latest - 100 while committing to latest - 1
         let latest = provider.get_block_number().await.unwrap();
         let builder = EthEvmEnv::builder()
             .provider(&provider)
-            .block_number_or_tag(BlockNumberOrTag::Number(latest - 100))
-            .beacon_api(CL_URL.parse().unwrap())
-            .commitment_block_number(latest - 1);
+            .block_number_or_tag(BlockNumberOrTag::Number(latest - 8191))
+            .beacon_api(get_cl_url())
+            .commitment_block_number(latest - 1)
+            .chain_spec(&ETH_MAINNET_CHAIN_SPEC);
         let env = builder.clone().build().await.unwrap();
         let commit = env.commit.inner.commit(&env.header, env.commit.config_id);
 
@@ -498,7 +515,7 @@ mod tests {
                 CommitmentVersion::Beacon as u16,
                 header.timestamp,
                 header.parent_beacon_block_root.unwrap(),
-                EthChainSpec::DEFAULT_DIGEST,
+                ETH_MAINNET_CHAIN_SPEC.digest(),
             )
         );
     }

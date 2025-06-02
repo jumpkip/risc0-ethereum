@@ -158,12 +158,10 @@ impl EvmBlockHeader for OpBlockHeader {
     fn state_root(&self) -> &B256 {
         &self.0.inner().state_root
     }
-    #[cfg(feature = "unstable-event")]
     #[inline]
     fn receipts_root(&self) -> &B256 {
         &self.0.inner().receipts_root
     }
-    #[cfg(feature = "unstable-event")]
     #[inline]
     fn logs_bloom(&self) -> &alloy_primitives::Bloom {
         &self.0.inner().logs_bloom
@@ -211,10 +209,10 @@ pub enum OpEvmInput {
 
 impl OpEvmInput {
     #[inline]
-    pub fn into_env(self) -> EvmEnv<StateDb, OpEvmFactory, Commitment> {
+    pub fn into_env(self, chain_spec: &OpChainSpec) -> EvmEnv<StateDb, OpEvmFactory, Commitment> {
         match self {
-            OpEvmInput::Block(input) => input.into_env(),
-            OpEvmInput::DisputeGame(input) => input.into_env(),
+            OpEvmInput::Block(input) => input.into_env(chain_spec),
+            OpEvmInput::DisputeGame(input) => input.into_env(chain_spec),
         }
     }
 }

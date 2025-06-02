@@ -50,7 +50,7 @@ impl<H: EvmBlockHeader> BlockHeaderCommit<H> for () {
 
 impl<F: EvmFactory> BlockInput<F> {
     /// Converts the input into a [EvmEnv] for verifiable state access in the guest.
-    pub fn into_env(self) -> GuestEvmEnv<F> {
+    pub fn into_env(self, chain_spec: &ChainSpec<F::Spec>) -> GuestEvmEnv<F> {
         // verify that the state root matches the state trie
         let state_root = self.state_trie.hash_slow();
         assert_eq!(self.header.state_root(), &state_root, "State root mismatch");
@@ -77,13 +77,6 @@ impl<F: EvmFactory> BlockInput<F> {
             previous_header = ancestor;
         }
 
-        #[cfg(not(feature = "unstable-event"))]
-        // there must not be any receipts, if events are not supported
-        let logs = {
-            assert!(self.receipts.is_none(), "Receipts not supported");
-            None
-        };
-        #[cfg(feature = "unstable-event")]
         // verify the root hash of the included receipts and extract their logs
         let logs = self.receipts.map(|receipts| {
             let root = alloy_trie::root::ordered_trie_root_with_encoder(&receipts, |r, out| {
@@ -114,10 +107,10 @@ impl<F: EvmFactory> BlockInput<F> {
             CommitmentVersion::Block as u16,
             header.number(),
             header.seal(),
-            ChainSpec::<F::Spec>::default().digest(),
+            chain_spec.digest(),
         );
 
-        EvmEnv::new(db, header, commit)
+        EvmEnv::new(db, chain_spec, header, commit)
     }
 }
 

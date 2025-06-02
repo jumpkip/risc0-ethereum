@@ -16,8 +16,8 @@
 pub use alloy_rpc_types::{Topic, ValueOrArray};
 
 use crate::{state::WrapStateDb, EvmBlockHeader, EvmDatabase, EvmFactory, GuestEvmEnv};
-use alloy_primitives::{Address, Log, Sealed};
-use alloy_rpc_types::Filter;
+use alloy_primitives::{Address, Bloom, Log, Sealed};
+use alloy_rpc_types::{Filter, FilteredParams};
 use alloy_sol_types::SolEvent;
 use std::marker::PhantomData;
 
@@ -52,9 +52,9 @@ use std::marker::PhantomData;
 ///   (retrieved via `env.header()`) used to create the `Event` query. You cannot specify a block
 ///   range or a different block hash.
 /// - **Topic 0 (Event Signature):** This topic is automatically set based on the `SolEvent` type
-///   parameter (`S`) provided to [Event::new] or [Event::preflight] (using
-///   `S::SIGNATURE_HASH`). It cannot be altered or set to a wildcard/list. Anonymous events (where
-///   `S::ANONYMOUS` is true) are not supported.
+///   parameter (`S`) provided to [Event::new] or [Event::preflight] (using `S::SIGNATURE_HASH`). It
+///   cannot be altered or set to a wildcard/list. Anonymous events (where `S::ANONYMOUS` is true)
+///   are not supported.
 ///
 /// ### Usage
 /// The usage pattern mirrors other Steel interactions like [Contract]:
@@ -65,10 +65,9 @@ use std::marker::PhantomData;
 /// ### Examples
 /// Basic usage with a single contract address:
 /// ```rust,no_run
-/// # use risc0_steel::{ethereum::EthEvmEnv, Event};
+/// # use risc0_steel::{ethereum::{ETH_MAINNET_CHAIN_SPEC, EthEvmEnv}, Event};
 /// # use alloy_primitives::address;
 /// # use alloy_sol_types::sol;
-///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() -> anyhow::Result<()> {
 /// let contract_address = address!("dAC17F958D2ee523a2206206994597C13D831ec7");
@@ -80,14 +79,14 @@ use std::marker::PhantomData;
 ///
 /// // Host:
 /// let url = "https://ethereum-rpc.publicnode.com".parse()?;
-/// let mut env = EthEvmEnv::builder().rpc(url).build().await?;
+/// let mut env = EthEvmEnv::builder().rpc(url).chain_spec(&ETH_MAINNET_CHAIN_SPEC).build().await?;
 /// let event = Event::preflight::<IERC20::Transfer>(&mut env).address(contract_address);
 /// event.query().await?;
 ///
 /// let evm_input = env.into_input().await?;
 ///
 /// // Guest:
-/// let env = evm_input.into_env();
+/// let env = evm_input.into_env(&ETH_MAINNET_CHAIN_SPEC);
 /// let event = Event::new::<IERC20::Transfer>(&env).address(contract_address);
 /// let logs = event.query();
 ///
@@ -97,7 +96,7 @@ use std::marker::PhantomData;
 ///
 /// Advanced filtering with multiple addresses and topics:
 /// ```rust,no_run
-/// # use risc0_steel::{ethereum::EthEvmEnv, Event};
+/// # use risc0_steel::{ethereum::{ETH_MAINNET_CHAIN_SPEC, EthEvmEnv}, Event};
 /// # use alloy_primitives::{address, b256, B256, Address};
 /// # use alloy_rpc_types::{Topic, ValueOrArray};
 /// # use alloy_sol_types::sol;
@@ -115,7 +114,7 @@ use std::marker::PhantomData;
 /// }
 ///
 /// let url = "https://ethereum-rpc.publicnode.com".parse()?;
-/// let mut env = EthEvmEnv::builder().rpc(url).build().await?;
+/// let mut env = EthEvmEnv::builder().rpc(url).chain_spec(&ETH_MAINNET_CHAIN_SPEC).build().await?;
 ///
 /// // Create an event query for Transfer events from *either* USDT or USDC contract,
 /// // originating from *either* sender1 or sender2.
@@ -152,7 +151,6 @@ impl<F: EvmFactory> Event<(), &GuestEvmEnv<F>> {
     }
 }
 
-#[cfg(feature = "unstable-event")]
 impl<S: SolEvent, F: EvmFactory> Event<S, &GuestEvmEnv<F>> {
     /// Executes the query and returns the matching logs and panics on failure.
     ///
@@ -259,4 +257,11 @@ fn event_filter<S: SolEvent, H: EvmBlockHeader>(header: &Sealed<H>) -> Filter {
     Filter::new()
         .event_signature(S::SIGNATURE_HASH)
         .at_block_hash(header.seal())
+}
+
+/// Checks if a bloom filter matches the given filter parameters.
+#[inline]
+pub(super) fn matches_filter(bloom: Bloom, filter: &Filter) -> bool {
+    FilteredParams::matches_address(bloom, &FilteredParams::address_filter(&filter.address))
+        && FilteredParams::matches_topics(bloom, &FilteredParams::topics_filter(&filter.topics))
 }

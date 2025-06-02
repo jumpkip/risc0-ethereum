@@ -1,7 +1,7 @@
 [package]
 name = "risc0-steel"
 description = "Query Ethereum state, or any other EVM-based blockchain state within the RISC Zero zkVM."
-version = "2.1.0-alpha.1"
+version = "2.2.0-alpha.1"
 rust-version = "1.80"
 edition = { workspace = true }
 license = { workspace = true }
@@ -24,14 +24,14 @@ alloy-sol-types = { workspace = true }
 alloy-trie = { workspace = true, features = ["serde"] }
 anyhow = { workspace = true }
 bincode = { workspace = true }
+enumn = { workspace = true }
 ethereum-consensus = { workspace = true, optional = true }
 log = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
-revm = { workspace = true, features = ["serde", "optional_balance_check", "optional_block_gas_limit", "optional_eip3607", "optional_no_base_fee"] }
+revm = { workspace = true, features = ["optional_balance_check", "optional_block_gas_limit", "optional_eip3607", "optional_no_base_fee", "serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true }
-stability = { workspace = true }
 thiserror = { workspace = true, features = ["default"] }
 tokio = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
@@ -52,7 +52,7 @@ host = [
     "dep:serde_json",
     "dep:tokio",
     "dep:url",
+    "serde_json/raw_value"
 ]
-unstable-event = []
-unstable-history = []
-unstable-verifier = []
+kzg = ["revm/c-kzg"]
+rpc-tests = []
